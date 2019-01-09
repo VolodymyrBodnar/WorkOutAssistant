@@ -48,14 +48,14 @@ def create_reminding(day,time_,chat_id):
 
 
 def get_data_from_db():
-    with psycopg2.connect("dbname='workoutbot' user='workoutbot' password='snoopdogg12' host='localhost'") as conn:
+    with psycopg2.connect(f"dbname={db_name} user={db_user} password={db_password} host='localhost'") as conn:
             with conn.cursor() as curs:
                 curs.execute('SELECT * FROM reminders;')
                 for row in curs.fetchall():
                     data = (row[1],row[2],row[0])
                     create_reminding(*data)
 
-    with psycopg2.connect("dbname='workoutbot' user='workoutbot' password='snoopdogg12' host='localhost'") as conn:
+    with psycopg2.connect(f"dbname={db_name} user={db_user} password={db_password} host='localhost'") as conn:
             with conn.cursor() as curs:
                 curs.execute('SELECT * FROM users;')
                 for row in curs.fetchall():
