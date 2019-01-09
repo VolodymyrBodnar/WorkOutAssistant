@@ -9,6 +9,6 @@
  on Telegram find : @YourTelegramTrainerBot
 
 *dependencies :*
-* [pyTelegramBotAPI])(https://github.com/eternnoir/pyTelegramBotAPI)
+* [pyTelegramBotAPI](https://github.com/eternnoir/pyTelegramBotAPI)
 * [schedule](https://pypi.org/project/schedule/)
 * [psycopg2](http://initd.org/psycopg/docs/)
