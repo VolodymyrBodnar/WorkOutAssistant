@@ -1,6 +1,7 @@
 from config import *
 
 from threading import Thread
+import random
 import schedule, time
 
 import telebot
@@ -9,15 +10,15 @@ from telebot import types
 import psycopg2
 
 bot = telebot.TeleBot(token)
-
  
 users = {}    # this dictionaries needed for tranision data in "next step handlers"
 remindings = {}
 
-#----- Some classes needed for bot functioning
+##### Some classes needed for bot functioning
 class User:
-    def __init__(self,chat_id):
+    def __init__(self,chat_id,goal='no goal'):
         self.chat_id = chat_id
+        self.goal = goal
 
 class Reminding:
     def __init__(self,day,time_,chat_id):
@@ -45,21 +46,87 @@ def create_reminding(day,time_,chat_id):
     elif day == 'sunday':
         schedule.every().sunday.at(time_).do(call)
 
-with psycopg2.connect("dbname='workoutbot' user='workoutbot' password='snoopdogg12' host='localhost'") as conn:
+
+def get_data_from_db():
+    with psycopg2.connect("dbname='workoutbot' user='workoutbot' password='snoopdogg12' host='localhost'") as conn:
+            with conn.cursor() as curs:
+                curs.execute('SELECT * FROM reminders;')
+                for row in curs.fetchall():
+                    data = (row[1],row[2],row[0])
+                    create_reminding(*data)
+
+    with psycopg2.connect("dbname='workoutbot' user='workoutbot' password='snoopdogg12' host='localhost'") as conn:
+            with conn.cursor() as curs:
+                curs.execute('SELECT * FROM users;')
+                for row in curs.fetchall():
+                    chat_id = row[0]
+                    goal = row[1]
+                    users[chat_id] = User(chat_id,goal)
+def commit_user(user):
+    with psycopg2.connect("dbname='workoutbot' user='workoutbot' password='snoopdogg12' host='localhost'") as conn:
         with conn.cursor() as curs:
-            curs.execute('SELECT * FROM reminders;')
-            for row in curs.fetchall():
-                data = (row[1],row[2],row[0])
-                create_reminding(*data)
+            curs.execute(f"INSERT INTO users VALUES({user.chat_id}, '{user.goal}');")
+def update_user(user):
+    with psycopg2.connect("dbname='workoutbot' user='workoutbot' password='snoopdogg12' host='localhost'") as conn:
+        with conn.cursor() as curs:
+            curs.execute(f"UPDATE users SET goal='{user.goal}' WHERE chat_id={user.chat_id};")
 
 
+#### User creation process
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     chat_id = message.chat.id
     bot.reply_to(message, "Howdy, I am a bot, and I will be your personal training assistan")
     users[chat_id] = User(chat_id)
+    ask_type_of_training(message)
+#@bot.message_handler(commands=['Goal'])
+def ask_type_of_training(messsage):
+    chat_id = messsage.chat.id
+    markup = types.ReplyKeyboardMarkup(row_width=1)
+    g1 = types.KeyboardButton('Muscle gain / Heavy weights')
+    g2 = types.KeyboardButton('Fat loss / HiT + Weights')
+    g3 = types.KeyboardButton('Aesthetics fullbody/ Calisthenics')
+    markup.add(g1, g2, g3)
+    msg = bot.send_message(
+        chat_id,
+         "*What is your goal?*",
+        reply_markup=markup, 
+        parse_mode='Markdown')
+    bot.register_next_step_handler(msg, set_goal)
 
-# ***  BOT reminder creatin process
+def set_goal(message):
+    chat_id = message.chat.id
+    user = users[chat_id]
+    prev_goal = user.goal
+    user.goal = message.text.split()[1]
+    if prev_goal == 'no goal':
+        commit_user(user)
+    else:
+        update_user(user)
+    markup = types.ReplyKeyboardRemove(selective=False)
+    bot.send_message(
+        chat_id,
+        f'Ok, you have set your goal as *{user.goal}*, for getting your program just type /program',
+        reply_markup=markup,
+        parse_mode='Markdown')
+
+@bot.message_handler(commands=['goal'])
+def change_goal(message):
+    chat_id = message.chat.id
+    markup = types.ReplyKeyboardMarkup(row_width=1)
+    g1 = types.KeyboardButton('Muscle gain / Heavy weights')
+    g2 = types.KeyboardButton('Fat loss / HiT + Weights')
+    g3 = types.KeyboardButton('Aesthetics fullbody/ Calisthenics')
+    markup.add(g1, g2, g3)
+    msg = bot.send_message(
+        chat_id,
+         "*What is your new goal?*",
+        reply_markup=markup, 
+        parse_mode='Markdown')
+    bot.register_next_step_handler(msg, set_goal)
+
+
+####   Reminding creation process
 @bot.message_handler(commands=['reminder'])
 def set_reminder(message):
     "Firs step of reminder creation"
@@ -106,27 +173,75 @@ def set_time(message):
     create_reminding(reminder.day,reminder.time_,chat_id)
     with psycopg2.connect("dbname='workoutbot' user='workoutbot' password='snoopdogg12' host='localhost'") as conn:
         with conn.cursor() as curs:
-            curs.execute(f"INSERT INTO reminders VALUES({int(chat_id)}, '{reminder.day}', '{reminder.time_}');")   
+            curs.execute(f"INSERT INTO reminders VALUES({chat_id}, '{reminder.day}', '{reminder.time_}');")   
 
 
+#### Get training program
+@bot.message_handler(commands=['program'])
+def which_day(message): 
+    chat_id = message.chat.id
+    markup = types.ReplyKeyboardMarkup(row_width=1)
+    day1 = types.KeyboardButton('Day 1')
+    day2 = types.KeyboardButton('Day 2')
+    day3 = types.KeyboardButton('Day 3')
+    markup.add(day1, day2, day3)
+    msg = bot.send_message(
+            chat_id,
+            '*What day is it* ?',
+            reply_markup=markup,
+            parse_mode = 'Markdown'
+            )
+    bot.register_next_step_handler(msg,send_program)
+    
+def send_program(message):
+    chat_id = message.chat.id
+    markup = types.ReplyKeyboardRemove(selective=False)
+    user = users[chat_id]
+    day = message.text.split()[1]
+    with open(f'train_programs/{user.goal}/{day}.md', 'r') as content_file:
+        content = content_file.read()
+    bot.send_message(
+        chat_id,
+        content,
+        parse_mode='Markdown',
+        reply_markup=markup
+    )
+
+
+
+#### get tips
+def send_tip(user):
+    rand_int = random.randint(1,10) 
+    with open(f'tips/{rand_int}.md', 'r') as content_file:
+        content = content_file.read()
+    bot.send_message(user.chat_id, content,parse_mode="Markdown")
+
+def spam_tips():
+    for user in users:
+        send = random.choice((True, False))
+        if send:
+            send_tip(users[user])
+
+
+
+#### Send user data
 @bot.message_handler(commands=['data'])
 def send_data(message):
     "send user his data"
     chat_id =message.chat.id
-    bot.send_message( chat_id,chat_id)
+    bot.send_message( chat_id,chat_id )
 
 
-
-def bot_main():
-    bot.polling()
-
+#### running procesess
 def schedule_main():
     while True:
         schedule.run_pending()
         time.sleep(1)
 
 
-if __name__=='__main__':        
+if __name__=='__main__':
+    schedule.every().day.at('14:11').do(spam_tips)
+    get_data_from_db()        
     Thread(target = schedule_main).start() 
-    Thread(target = bot_main).start()
+    Thread(target = bot.polling).start()
 
